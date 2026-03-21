@@ -1,8 +1,16 @@
-# Ralph Loop
+# Ralph Loop Setup
 
-An autonomous AI coding agent loop that takes a PRD (Product Requirements Document), breaks it into user stories, and iteratively implements them using Claude Code or Amp.
+A ready-to-use template for running [Ralph Loop](https://github.com/anthropics/claude-code/tree/main/ralph) — the autonomous AI coding agent that takes PRDs and implements them story by story.
 
-Ralph runs in a sandboxed Dev Container with network restrictions, ensuring the AI agent can only access approved services (GitHub, npm, Anthropic API).
+This template gives you a pre-configured Dev Container with Claude Code installed, `--dangerously-skip-permissions` already wired up, and a network firewall so the agent can only talk to approved services (GitHub, npm, Anthropic API). Clone it, open in VS Code, and start running Ralph.
+
+## What's Included
+
+- **Dev Container** — Dockerfile and `devcontainer.json` ready to build, with Claude Code pre-installed globally
+- **Network firewall** — `iptables` rules that block all outbound traffic except GitHub, npm, Anthropic API, Sentry, and VS Code marketplace
+- **Ralph script** — `ralph.sh` pre-configured with `--dangerously-skip-permissions` for fully autonomous operation
+- **Agent instructions** — `CLAUDE.md` with the iteration loop logic (read PRD, pick story, implement, commit, repeat)
+- **PRD skill** — Claude Code skill to convert your PRDs into Ralph's `prd.json` format
 
 ## Prerequisites
 
@@ -24,10 +32,19 @@ Open in VS Code and reopen in the Dev Container when prompted (or run `Dev Conta
 
 The container automatically:
 - Installs Claude Code globally
-- Configures a firewall that only allows traffic to GitHub, npm, Anthropic API, and Sentry
+- Configures a firewall that only allows traffic to approved services
 - Sets up zsh with git and fzf integrations
 
-### 2. Create a PRD
+### 2. Clone your project inside the container
+
+Once inside the Dev Container, clone the repo you want Ralph to work on:
+
+```bash
+git clone https://github.com/your-org/your-project.git
+cd your-project
+```
+
+### 3. Create a PRD
 
 Write a PRD for your feature (markdown format), then convert it to Ralph's `prd.json` format:
 
@@ -38,7 +55,7 @@ claude
 # Paste or reference your PRD
 ```
 
-Or manually create `scripts/ralph/prd.json` following this structure:
+Or manually create `scripts/ralph/prd.json`:
 
 ```json
 {
@@ -62,7 +79,7 @@ Or manually create `scripts/ralph/prd.json` following this structure:
 }
 ```
 
-### 3. Run Ralph
+### 4. Run Ralph
 
 ```bash
 cd scripts/ralph
@@ -82,84 +99,50 @@ cd scripts/ralph
 ./ralph.sh --tool amp 5
 ```
 
-Ralph will:
-1. Read the PRD and progress log
-2. Check out the correct branch
-3. Pick the highest-priority incomplete story
-4. Implement it and run quality checks
-5. Commit changes and update progress
-6. Repeat until all stories pass or max iterations reached
-
 ## How It Works
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   prd.json  │────▶│  ralph.sh    │────▶│ Claude/Amp  │
-│  (stories)  │     │  (loop)      │     │  (agent)    │
-└─────────────┘     └──────┬───────┘     └──────┬──────┘
-                           │                     │
-                           │  ◀── iteration ──▶  │
-                           │                     │
-                    ┌──────▼───────┐     ┌──────▼──────┐
-                    │ progress.txt │     │ git commit  │
-                    │  (log)       │     │  (code)     │
-                    └──────────────┘     └─────────────┘
-```
+This template wraps [Ralph Loop](https://github.com/anthropics/claude-code/tree/main/ralph) with a sandboxed container environment. The loop itself:
 
-Each iteration spawns a fresh agent instance with no memory of previous runs. The agent reads `CLAUDE.md` for instructions and `progress.txt` for context from prior iterations.
+1. Reads the PRD and progress log
+2. Checks out the correct branch
+3. Picks the highest-priority incomplete story
+4. Spawns a fresh Claude/Amp instance to implement it
+5. Commits changes and updates progress
+6. Repeats until all stories pass or max iterations reached
 
-### Key Files
+Each iteration is a fresh agent instance with no memory of previous runs. Context is passed through `progress.txt` and `CLAUDE.md`.
+
+## Project Structure
 
 | File | Purpose |
 |------|---------|
-| `scripts/ralph/ralph.sh` | Main loop script |
-| `scripts/ralph/CLAUDE.md` | Agent instructions (read each iteration) |
-| `scripts/ralph/prd.json` | PRD with user stories (you create this) |
+| `.devcontainer/` | Dev Container config, Dockerfile, and firewall script |
+| `scripts/ralph/ralph.sh` | Main loop script (calls Claude with `--dangerously-skip-permissions`) |
+| `scripts/ralph/CLAUDE.md` | Agent instructions read each iteration |
+| `scripts/ralph/prd.json` | Your PRD with user stories (you create this) |
 | `scripts/ralph/progress.txt` | Cumulative progress log (auto-generated) |
-| `scripts/ralph/archive/` | Archived runs from previous features |
 
-## Writing Good PRDs for Ralph
+## Firewall
 
-**Keep stories small** - each must be completable in a single iteration (one context window).
+The firewall (`init-firewall.sh`) runs on container start and uses `iptables` + `ipset` to block all outbound traffic except:
 
-**Order by dependency** - schema changes first, then backend, then UI.
+- GitHub (API, web, git — IPs fetched dynamically from GitHub's `/meta` endpoint)
+- npm registry
+- Anthropic API
+- Sentry
+- VS Code marketplace
 
-**Use verifiable acceptance criteria:**
-- "Add `status` column with default `pending`"
-- "Filter dropdown shows: All, Active, Done"
-- "Typecheck passes"
+This prevents the AI agent from making unintended network requests while running autonomously.
 
-**Always include** `"Typecheck passes"` as a criterion on every story.
+## Tips for Writing PRDs
 
-See the full guide in `.claude/skills/ralph/SKILL.md`.
-
-## Dev Container
-
-The Dev Container provides a sandboxed environment with:
-
-- **Node.js 20** runtime
-- **Claude Code** pre-installed
-- **Network firewall** restricting outbound traffic to:
-  - GitHub (API, web, git)
-  - npm registry
-  - Anthropic API
-  - VS Code marketplace
-- **Tools**: git, gh, jq, fzf, zsh, nano, vim
-
-### Firewall
-
-The firewall (`init-firewall.sh`) runs on container start and blocks all outbound traffic except to approved services. This prevents the AI agent from making unintended network requests.
-
-## Archiving
-
-When you switch to a new feature (different `branchName` in `prd.json`), Ralph automatically archives the previous run's `prd.json` and `progress.txt` to:
-
-```
-scripts/ralph/archive/YYYY-MM-DD-feature-name/
-```
+- **Keep stories small** — each must be completable in a single iteration (one context window)
+- **Order by dependency** — schema changes first, then backend, then UI
+- **Use verifiable acceptance criteria** — e.g., "Typecheck passes", "Filter shows: All, Active, Done"
+- **Always include** `"Typecheck passes"` as a criterion on every story
 
 ## Stop Condition
 
 Ralph stops when:
-- All user stories have `"passes": true` (outputs `COMPLETE`)
-- Max iterations reached (exits with error)
+- All user stories have `"passes": true` → outputs `COMPLETE`
+- Max iterations reached → exits with error
